@@ -356,3 +356,54 @@ section.card { margin-bottom: 14px; }
   textarea { border: 1px solid #999; }
 }
 @media (max-width: 520px) { #lab-form .grid-2 { grid-template-columns: 1fr; } }
+
+/* barcode */
+.barcode { display: grid; gap: 12px; margin-bottom: 8px; border: 2px solid var(--ink); }
+.barcode h2 { margin: 0 0 4px; }
+.bc-actions { display: grid; gap: 10px; }
+.bc-manual { display: flex; gap: 8px; }
+.bc-manual input { flex: 1; }
+.or-type { margin-top: 18px; }
+.found { display: flex; gap: 12px; align-items: flex-start; background: var(--lime-soft); border-radius: var(--radius-sm); padding: 14px; }
+.found > .i { width: 28px; height: 28px; color: var(--lime-deep); }
+.found b { font-size: 1.05rem; }
+.found p { margin: 4px 0 0; }
+.warn-list { margin: 6px 0 0; padding-left: 18px; font-weight: 600; }
+.viewfinder { position: relative; border-radius: var(--radius); overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+.viewfinder video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vf-line { position: absolute; left: 12%; right: 12%; top: 50%; height: 3px; background: var(--org); box-shadow: 0 0 12px var(--org); border-radius: 3px; }
+.viewfinder::after { content: ''; position: absolute; inset: 22% 10%; border: 3px solid rgba(255,255,255,.85); border-radius: 14px; }
+
+/* experiments */
+.c-lime-soft { background: var(--lime-soft); } .c-pink-soft { background: var(--pink-soft); } .c-peri-soft { background: var(--peri-soft); } .c-org-soft { background: var(--org-soft); }
+.exp-active { border-radius: var(--radius); padding: 18px; margin-bottom: 22px; border: 2px solid var(--ink); }
+.exp-active h2 { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.exp-days { list-style: none; padding: 0; margin: 14px 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.exp-day { width: 100%; aspect-ratio: 1; border-radius: 14px; border: 2px solid var(--ink); background: #fff; color: var(--ink); cursor: pointer; display: grid; place-items: center; align-content: center; gap: 0; font: 400 1.2rem var(--font-head); }
+.exp-day .i { width: 16px; height: 16px; }
+.exp-day.on { background: var(--ink); color: #fff; }
+.exp-day:disabled { opacity: .35; cursor: default; border-style: dashed; }
+.exp-compare { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+.exp-compare li { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: center; background: #fff; border-radius: 12px; padding: 8px 12px; font-weight: 700; }
+.exp-compare em { font-style: normal; font-weight: 800; } .exp-compare em.good { color: var(--lime-deep); } .exp-compare em.meh { color: var(--org-deep); }
+.exp-grid { list-style: none; padding: 0; margin: 0 0 22px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.exp-card { background: #fff; border-radius: var(--radius); padding: 16px; display: grid; gap: 6px; align-content: start; justify-items: start; }
+.exp-card b { font: 400 1.3rem/1.05 var(--font-head); text-transform: uppercase; }
+.exp-card p { margin: 0; color: var(--muted); font-weight: 600; }
+.exp-card .btn { margin-top: 6px; }
+.exp-hist { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.exp-hist li { background: #fff; border-radius: var(--radius-sm); padding: 14px; }
+.exp-hist li > div { display: grid; }
+.exp-strip { display: flex; gap: 12px; align-items: center; border-radius: var(--radius); padding: 14px; margin-bottom: 24px; flex-wrap: wrap; border: 2px solid var(--ink); }
+.exp-strip > div { display: grid; flex: 1; min-width: 160px; }
+.exp-strip b { font: 400 1.3rem/1.05 var(--font-head); text-transform: uppercase; }
+.exp-strip .kicker { color: var(--ink); }
+
+/* install + reminders */
+.app-card h2 { display: flex; align-items: center; gap: 8px; }
+.app-card [hidden] { display: none; }
+.install-ios { background: var(--peri-soft); border-radius: 12px; padding: 10px 12px; }
+.rem-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.rem-list li { display: flex; gap: 10px; align-items: end; justify-content: space-between; flex-wrap: wrap; background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+.rem-list label { display: grid; gap: 4px; font-weight: 700; font-size: .9rem; }
+.rem-list input { width: auto; min-height: 42px; }

@@ -23,6 +23,10 @@ function layout({ title, description = '', body, user, bodyClass = '' }) {
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
 <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#88a5d3">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+
 <link rel="stylesheet" href="/css/site.css">
 <script src="/js/consent.js" defer></script>
 <script src="/js/http.js" defer></script>
@@ -383,12 +387,12 @@ function privacyPage({ user }) {
     ['Who we are', contactBlock],
     ['What we collect', `<ul>
       <li><b>Account:</b> first name, email, a securely hashed password, and whether you opted in to marketing emails.</li>
-      <li><b>What you put in the app:</b> food labels you score, plates you build, photos you upload, food logs, daily targets, meal plans and lesson progress.</li>
+      <li><b>What you put in the app:</b> food labels you score, plates you build, photos you upload, food logs, daily targets, meal plans, lesson progress, daily check-ins (energy, mood, cravings, sleep, period and symptoms), lab results you enter, and 7-day experiments.</li>
       <li><b>Consent records:</b> an anonymous visitor ID, your cookie choices, the date, your browser’s user agent and an approximate region based on your time zone.</li>
       <li><b>Privacy requests:</b> the email and details you send through the privacy request form.</li></ul>`],
     ['How we use it', `<p>To run the app for you: save your entries, show your scores, plans and progress, keep your account secure, and answer privacy requests. Marketing emails only if you opted in.</p>`],
     ['Health-related information', `<p>Food and meal information can feel personal. We use it only to show it back to you inside the app. It is never sold, shared for advertising or used to build ad profiles.</p>${MISSING('owner/legal review of any health-data laws that apply (for example state consumer health data laws). Confirm whether HIPAA applies to this app or not.')}`],
-    ['Who can see it', `<p>Only you can see your entries and photos. The owner/admin can see compliance records (consent log, signup consents, privacy requests). Our hosting and database provider stores the data on our behalf: ${MISSING('hosting provider name and location (HighLevel)')}.</p>`],
+    ['Who can see it', `<p>Only you can see your entries and photos. The owner/admin can see compliance records (consent log, signup consents, privacy requests). When you scan a barcode, our server looks up only the barcode number in the public Open Food Facts database; nothing about you is sent. Our hosting and database provider stores the data on our behalf: ${MISSING('hosting provider name and location (HighLevel)')}.</p>`],
     ['Cookies', `<p>See our <a href="/cookies">Cookie Policy</a>. Non-essential cookies only run if you say yes. We honor Global Privacy Control signals.</p>`],
     ['Your rights', `<p>You can access, download, correct or delete your data. Use the <a href="/privacy-request">privacy request form</a>, or download and delete your account yourself from your account page in the app.</p>`],
     ['Retention and deletion', `<p>When you delete your account, we delete your profile, entries, photos and logs. We keep only records we are required to keep, such as consent records and invoices if any purchases are ever made. ${MISSING('retention periods for retained records')}</p>`],
@@ -487,6 +491,10 @@ function adminPage({ user }) {
 function appShell({ user }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(CFG.APP_NAME)}</title><link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#88a5d3">
+<link rel="apple-touch-icon" href="/img/icon-180.png">
+
 <link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/app.css">
 <script src="/js/consent.js" defer></script>
 <script type="text/plain" data-consent="analytics" data-src="/js/analytics-placeholder.js"></script>

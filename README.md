@@ -9,6 +9,9 @@ A food-quality and meal-planning app for women with PCOS, from Root Cause NP. Ev
   - **My plate:** add a photo, tap your foods, and get estimates and rebalancing tips. You can create, view, edit and delete plates.
   - **Plan:** week planner with protein-forward breakfasts first, a grocery list built from the plan and grouped by aisle (checks saved), snack ideas plus a snack builder, fridge, freezer and pantry staples with a label check for each, and a prep and success guide
   - **Me:** a 20-second daily check-in (energy, mood, cravings, sleep, period, symptoms); patterns (streak, non-scale wins, 28-day energy and cycle calendar, cycle length, top symptoms, and how energy compares on fiber-goal days, labeled as a personal pattern); My numbers (labs shown against ADA prediabetes and metabolic syndrome ranges, plus a metabolic syndrome check); and a printable appointment report with guideline-based tests and questions
+  - **Barcode scanning:** camera scan (the browser's built-in BarcodeDetector, with the ZXing library as fallback for iPhone) or a typed barcode. Looked up server-side in Open Food Facts (ODbL, credited in the app), cached for 7 days, and used to prefill the label form for the user to check. Unreliable added-sugar values fall back to total sugar, with a warning
+  - **7-day experiments:** veggies first, protein breakfast, walk after dinner, 25g fiber (auto-tracked from the food log), sweets after meals, one less ultra-processed snack. Mark days done; results compare check-ins with the 7 days before
+  - **Install and reminders:** installable from the browser (manifest plus a service worker that caches the app shell offline, never API data), and repeating calendar (.ics) reminders for the check-in, the after-dinner walk and Sunday planning
   - **Focus setting:** PCOS, insulin resistance, prediabetes or metabolic syndrome. Sets which lesson is suggested first
   - **Learn:** 10 lessons (insulin resistance, real food vs ultra-processed, making it stick, plate building, blood sugar habits, elimination phases)
   - **Account:** targets, email opt-in, data export, account deletion
@@ -48,7 +51,7 @@ npm test
 npm run test:browser
 ```
 
-`npm test` runs 29 API and security tests. `npm run test:browser` runs 34 Playwright tests (including evidence links on tips and lessons) (consent banner, full user journey on mobile, admin, CSV downloads, footer links, no horizontal scroll, no console errors) and saves screenshots to `screenshots/`.
+`npm test` runs 33 API and security tests. `npm run test:browser` runs 37 Playwright tests (including evidence links on tips and lessons) (consent banner, full user journey on mobile, admin, CSV downloads, footer links, no horizontal scroll, no console errors) and saves screenshots to `screenshots/`.
 
 ## Moving into HighLevel AI Studio
 
@@ -101,3 +104,7 @@ Current: retro and clear. Periwinkle, hot orange, lime/pistachio and bubblegum p
 
 Previous direction (replaced): 
 Editorial and quiet: bone background, espresso text, sage and clay accents, Fraunces (light) headings, DM Sans body, Phosphor line icons (MIT license, self-hosted), no emoji. Fonts and icons are served from this app, with no third-party requests. Optional photography direction is in `docs/image-brief.md`.
+
+## Network note
+
+Barcode lookups call `world.openfoodfacts.org` from the server. In sandboxes that route traffic through an HTTPS proxy, start Node with `NODE_USE_ENV_PROXY=1`. Optionally set `OFF_CONTACT` to a contact address for Open Food Facts' User-Agent etiquette.

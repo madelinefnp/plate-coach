@@ -169,6 +169,25 @@ CREATE TABLE IF NOT EXISTS labs (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS labs_user ON labs(user_id, kind, taken_on);
+CREATE TABLE IF NOT EXISTS products (
+  code TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS experiments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  key TEXT NOT NULL,
+  started_on TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','done','stopped')),
+  ended_on TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE TABLE IF NOT EXISTS experiment_days (
+  experiment_id TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  PRIMARY KEY (experiment_id, day)
+);
 CREATE TABLE IF NOT EXISTS lesson_progress (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   lesson_id TEXT NOT NULL,

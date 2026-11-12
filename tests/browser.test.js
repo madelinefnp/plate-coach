@@ -298,6 +298,48 @@ async function test(name, fn) { try { await fn(); results.push(['PASS', name]); 
     await mp.goto(BASE + '/app#/learn');
     await mp.locator('.start-here', { hasText: /Prediabetes and metabolic syndrome/i }).waitFor();
   });
+  await test('Barcode lookup fills the label form, then scores it with processing', async () => {
+    const { mapProduct } = require('../src/foodfacts');
+    const fx = mapProduct('0012345678905', { product_name: 'Test Oat Bar', brands: 'Demo', serving_size: '1 bar (40 g)', nova_group: 4,
+      nutriments: { 'added-sugars_serving': 9, proteins_serving: 4, fiber_serving: 3, carbohydrates_serving: 27, fat_serving: 6 }, ingredients_text_en: 'oats, sugar, soy lecithin, natural flavor' });
+    db.prepare('INSERT OR REPLACE INTO products (code, data, fetched_at) VALUES (?,?,?)').run('0012345678905', JSON.stringify(fx), Date.now());
+    await mp.goto(BASE + '/app#/scan');
+    await mp.getByRole('heading', { name: 'Scan the barcode' }).waitFor();
+    await mp.getByRole('button', { name: /Scan with camera/ }).waitFor();
+    await mp.locator('#bc-code').fill('0012345678905');
+    await mp.getByRole('button', { name: 'Look up' }).click();
+    await mp.getByText('Found: Test Oat Bar').waitFor();
+    assert.equal(await mp.getByLabel('Added sugars (g)').inputValue(), '9');
+    assert.match(await mp.locator('.bc-result').innerText(), /ultra-processed \(NOVA group 4\)/);
+    await mp.screenshot({ path: path.join(SHOTS, 'mobile-barcode.png'), fullPage: true });
+    await mp.getByRole('button', { name: 'Get my score' }).click();
+    await mp.waitForURL(/#\/scan\/[0-9a-f-]{36}$/);
+    await mp.locator('.proc-box', { hasText: /Ultra-processed signs/i }).waitFor();
+  });
+  await test('7-day experiment: start, log today, shows on Today', async () => {
+    await mp.goto(BASE + '/app#/me/experiments');
+    await mp.getByRole('heading', { name: '7-day experiments' }).waitFor().catch(async e => { console.log('VIEW:', (await mp.locator('#view').innerText()).slice(0, 400)); throw e; });
+    await mp.locator('[data-exp-start="walk_after_dinner"]').click();
+    await mp.getByText('Day 1 of 7').waitFor();
+    await mp.getByRole('button', { name: /I did it today/ }).click();
+    await mp.getByText('Nice. Day logged.').waitFor().catch(async e => { console.log('TOAST:', await mp.locator('.toast').innerText().catch(() => 'none'), 'BTN:', await mp.locator('[data-exp-today]').evaluateAll(b => b.map(x => x.outerHTML))); throw e; });
+    await mp.locator('.exp-day.on').first().waitFor();
+    await mp.screenshot({ path: path.join(SHOTS, 'mobile-experiment.png'), fullPage: true });
+    await mp.goto(BASE + '/app#/today');
+    await mp.locator('.exp-strip', { hasText: /10-minute walk after dinner/i }).waitFor();
+    await mp.locator('.exp-strip', { hasText: 'Done today' }).waitFor();
+  });
+  await test('Account: install card and calendar reminders', async () => {
+    await mp.goto(BASE + '/app#/account');
+    await mp.getByRole('heading', { name: /Get the app/ }).waitFor();
+    await mp.getByText(/Add to Home Screen/).waitFor();
+    await mp.locator('[data-rem-time="checkin"]').fill('07:30');
+    await mp.locator('[data-rem-time="checkin"]').dispatchEvent('change');
+    assert.match(await mp.locator('[data-rem="checkin"]').getAttribute('href'), /time=07:30/);
+    const [dl] = await Promise.all([mp.waitForEvent('download'), mp.locator('[data-rem="checkin"]').click()]);
+    assert.match(fs.readFileSync(await dl.path(), 'utf8'), /RRULE:FREQ=DAILY/);
+    await mp.screenshot({ path: path.join(SHOTS, 'mobile-account.png'), fullPage: true });
+  });
   await test('Account: export my data downloads JSON', async () => {
     await mp.goto(BASE + '/app#/account');
     await mp.getByRole('link', { name: 'Download my data' }).waitFor();

@@ -121,7 +121,8 @@
   function renderToday() {
     loading();
     var d = state.date;
-    Promise.all([api('GET', '/day/' + d), api('GET', '/plans/' + monday(d)), api('GET', '/checkins/' + d)]).then(function (res) {
+    Promise.all([api('GET', '/day/' + d), api('GET', '/plans/' + monday(d)), api('GET', '/checkins/' + d), api('GET', '/experiments?today=' + localDate(new Date()))]).then(function (res) {
+      var expA = res[3].active;
       var day = res[0], plan = res[1], t = day.targets, tot = day.totals;
       checkinState = Object.assign({ day: d, energy: null, mood: null, cravings: null, sleep: null, period: null, symptoms: [] }, res[2].checkin || {}, { day: d });
       var dayIdx = (new Date(d + 'T12:00:00').getDay() + 6) % 7;
@@ -131,12 +132,15 @@
       var html = '<p class="q">Your day so far</p><div class="date-nav"><button class="icon-btn" data-day="-1" aria-label="Previous day">' + icon('caret-left') + '</button><h1>' + (isToday ? 'Today' : esc(prettyDate(d))) + '<span class="small muted">' + (isToday ? esc(prettyDate(d)) : '') + '</span></h1><button class="icon-btn" data-day="1" aria-label="Next day">' + icon('caret-right') + '</button></div>' +
         '<section class="meters">' + bar('Protein', 'egg', tot.protein, t.protein, 'goal') + bar('Fiber', 'leaf', tot.fiber, t.fiber, 'goal') + bar('Added sugar', 'cookie', tot.added_sugar, t.added_sugar, 'limit') + '</section>' +
         checkinCard() +
+        (expA ? '<section class="exp-strip ' + expA.def.color + '-soft"><span class="ask-ic ' + expA.def.color + '">' + icon(expA.def.icon) + '</span><div><span class="kicker">Experiment \u00B7 day ' + expA.dayNumber + ' of 7</span><b>' + esc(expA.def.title) + '</b><span class="small">' + esc(expA.def.daily) + '</span></div>' +
+          (expA.def.auto === 'fiber' ? '<a class="btn btn-tiny btn-ghost" href="#/me/experiments">See progress</a>' : (expA.days.some(function (x) { return x.day === localDate(new Date()) && x.done; }) ? '<span class="pill done">' + icon('check') + ' Done today</span>' : '<button class="btn btn-tiny" data-exp-today="' + expA.id + '" data-exp-date="' + localDate(new Date()) + '">I did it today</button>')) + '</section>' : '') +
         '<p class="q">What do you want to do?</p><div class="ask-list">' +
           ask('#/scan', 'barcode', 'c-org', 'Is this food a good pick?', 'Scan a label: what\u2019s in it and what\u2019s been done to it') +
           ask('#/plate', 'fork-knife', 'c-lime', 'Is my plate balanced?', 'Tap your foods, get tips') +
           ask('#/plan', 'calendar-blank', 'c-peri', 'What should I eat this week?', 'Plan meals and get your grocery list') +
           ask('#/plan/staples', 'basket', 'c-pink', 'Is my kitchen set up?', 'Staples, snacks and simple swaps') +
           ask('#/me', 'user-focus', 'c-lime', 'How am I actually doing?', 'Your patterns, cycle, labs and wins that aren\u2019t the scale') +
+          (expA ? '' : ask('#/me/experiments', 'flask', 'c-org', 'What works for my body?', 'Try a 7-day experiment and see how you feel')) +
           ask('#/me/report', 'clipboard-text', 'c-peri', 'Ready for my appointment?', 'A one-page summary to bring to your clinician') +
           ask('#/learn', 'book-open', 'c-ink', 'Why does this work?', state.catalog.lessons.length + ' short, research-backed lessons') +
         '</div>' +
@@ -232,6 +236,11 @@
       };
       view.innerHTML = '<p class="q">Is this food a good pick?</p><h1>Check a label</h1>' +
         '<div class="two-q">' + k.LABEL_CHECKS.map(function (c) { return '<div class="tq">' + icon(c.icon) + '<div><b>' + esc(c.q) + '</b><p class="small">' + esc(c.text) + '</p></div></div>'; }).join('') + '</div>' +
+        '<section class="barcode card"><div><p class="q">Fastest way</p><h2 class="h2">Scan the barcode</h2><p class="small muted">We look it up in the free Open Food Facts database and fill in the label for you to check.</p></div>' +
+          '<div class="bc-actions"><button type="button" class="btn" data-scan-camera>' + icon('barcode') + ' Scan with camera</button>' +
+          '<form class="bc-manual" data-bc-form novalidate><label class="sr-only" for="bc-code">Barcode number</label><input id="bc-code" name="code" inputmode="numeric" autocomplete="off" placeholder="or type the barcode number" maxlength="14"><button class="btn btn-ghost btn-small">Look up</button></form></div>' +
+          '<div class="bc-result" aria-live="polite"></div></section>' +
+        '<p class="q or-type">Or type the label yourself</p>' +
         scanForm() +
         '<div class="section-row"><div><p class="q">Pantry check</p><h2 class="h2">My pantry</h2></div></div>' +
         (d.scans.length ?
@@ -516,7 +525,7 @@
   function redrawCheckin() { var el = view.querySelector('.checkin'); if (el) el.outerHTML = checkinCard(); }
 
   // ---------- ME: patterns, labs, report ----------
-  var ME_TABS = [['patterns', 'My patterns', '#/me'], ['labs', 'My numbers', '#/me/labs'], ['report', 'Report', '#/me/report']];
+  var ME_TABS = [['patterns', 'My patterns', '#/me'], ['experiments', 'Experiments', '#/me/experiments'], ['labs', 'My numbers', '#/me/labs'], ['report', 'Report', '#/me/report']];
   function meNav(on, q) { return '<p class="q">' + q + '</p><nav class="subnav" aria-label="Me sections">' + ME_TABS.map(function (t) { return '<a href="' + t[2] + '"' + (t[0] === on ? ' class="on" aria-current="page"' : '') + '>' + t[1] + '</a>'; }).join('') + '</nav>'; }
   var LEVEL_WORD = { 1: 'low', 5: 'high' };
   function renderMe() {
@@ -611,6 +620,112 @@
     }).catch(errorView);
   }
 
+  // ---------- BARCODE ----------
+  var scanStream = null, zxingReader = null;
+  function lookupBarcode(code) {
+    var box = view.querySelector('.bc-result'); if (!box) return;
+    box.innerHTML = '<p class="small muted">Looking up ' + esc(code) + '\u2026</p>';
+    api('GET', '/products/' + encodeURIComponent(code)).then(function (d) {
+      var p = d.product, f = document.getElementById('scan-form');
+      var set = function (n, v) { var el = f.querySelector('[name="' + n + '"]'); if (el && v != null) el.value = v; };
+      set('name', p.brand && p.name.toLowerCase().indexOf(p.brand.toLowerCase()) < 0 ? p.name + ' (' + p.brand + ')' : p.name);
+      set('serving', p.serving); set('added_sugar', p.added_sugar); set('fiber', p.fiber); set('protein', p.protein); set('total_carbs', p.total_carbs); set('fat', p.fat); set('ingredients', p.ingredients);
+      var nova = { 1: 'unprocessed or minimally processed', 2: 'a kitchen ingredient', 3: 'processed', 4: 'ultra-processed' }[p.nova_group];
+      box.innerHTML = '<div class="found">' + icon('check-circle') + '<div><b>Found: ' + esc(p.name) + '</b><p class="small">The label below is filled in. Check it against your package, then tap \u201CGet my score.\u201D</p>' +
+        (nova ? '<p class="small">Open Food Facts classifies this as <b>' + nova + '</b> (NOVA group ' + p.nova_group + ').</p>' : '') +
+        (p.warnings.length ? '<ul class="small warn-list">' + p.warnings.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul>' : '') +
+        '<p class="tiny muted">Product data from Open Food Facts, available under the Open Database License.</p></div></div>';
+      f.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }).catch(function (e) { box.innerHTML = '<p class="form-error">' + esc(e.message) + '</p>'; });
+  }
+  function stopCamera() {
+    if (zxingReader) { try { zxingReader.reset(); } catch (e) {} zxingReader = null; }
+    if (scanStream) { scanStream.getTracks().forEach(function (t) { t.stop(); }); scanStream = null; }
+    var sh = document.querySelector('.scan-sheet'); if (sh) sh.remove();
+  }
+  function loadZxing() {
+    return new Promise(function (ok, bad) {
+      if (window.ZXing) return ok(window.ZXing);
+      var sc = document.createElement('script'); sc.src = '/vendor/zxing.min.js'; sc.onload = function () { ok(window.ZXing); }; sc.onerror = bad; document.head.appendChild(sc);
+    });
+  }
+  function openCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return toast('Your browser can\u2019t use the camera here. Type the barcode number instead.', true);
+    var sheet = document.createElement('div'); sheet.className = 'sheet-backdrop scan-sheet';
+    sheet.innerHTML = '<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="scan-title"><div class="sheet-head"><h2 id="scan-title">Scan a barcode</h2><button class="icon-btn" data-close-scan aria-label="Close">' + icon('x') + '</button></div>' +
+      '<div class="viewfinder"><video playsinline muted></video><span class="vf-line" aria-hidden="true"></span></div><p class="small muted center scan-msg">Hold the barcode inside the box. It scans by itself.</p></div>';
+    document.body.appendChild(sheet);
+    sheet.addEventListener('click', function (e) { if (e.target === sheet || e.target.closest('[data-close-scan]')) stopCamera(); });
+    var video = sheet.querySelector('video'), done = false;
+    var found = function (code) { if (done) return; done = true; if (navigator.vibrate) navigator.vibrate(40); stopCamera(); var inp = document.getElementById('bc-code'); if (inp) inp.value = code; lookupBarcode(code); };
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (stream) {
+      scanStream = stream; video.srcObject = stream; return video.play();
+    }).then(function () {
+      if ('BarcodeDetector' in window) {
+        var det = new window.BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+        var tick = function () { if (done || !scanStream) return; det.detect(video).then(function (r) { if (r.length) found(r[0].rawValue); else requestAnimationFrame(tick); }).catch(function () { requestAnimationFrame(tick); }); };
+        tick();
+      } else {
+        loadZxing().then(function (Z) {
+          zxingReader = new Z.BrowserMultiFormatReader();
+          zxingReader.decodeFromVideoElementContinuously(video, function (res) { if (res) found(res.getText()); });
+        }).catch(function () { sheet.querySelector('.scan-msg').textContent = 'Scanning isn\u2019t available on this device. Close this and type the barcode number.'; });
+      }
+    }).catch(function () { sheet.querySelector('.scan-msg').textContent = 'We couldn\u2019t open the camera. Check camera permission, or type the barcode number instead.'; });
+  }
+
+  // ---------- EXPERIMENTS ----------
+  var METRIC = { energy: 'Energy', cravings: 'Cravings', sleep: 'Sleep', mood: 'Mood' };
+  function expCompare(x) {
+    if (!x.beforeCount || !x.duringCount) return '<p class="small muted">Do your daily check-in during the experiment (and ideally the week before) to see how you felt. </p>';
+    return '<ul class="exp-compare">' + x.compare.map(function (c) {
+      if (c.change == null) return '<li><b>' + METRIC[c.metric] + '</b><span class="muted">Not enough check-ins</span></li>';
+      var good = c.better === 'down' ? c.change < 0 : c.change > 0;
+      return '<li><b>' + METRIC[c.metric] + '</b><span>' + c.before + ' \u2192 ' + c.during + '</span><em class="' + (good ? 'good' : c.change === 0 ? '' : 'meh') + '">' + (c.change > 0 ? '+' : '') + c.change + '</em></li>';
+    }).join('') + '</ul><p class="tiny muted">Average check-in scores (1 to 5): the 7 days before vs. during. A pattern for you, not proof.</p>';
+  }
+  function renderExperiments() {
+    loading();
+    api('GET', '/experiments?today=' + localDate(new Date())).then(function (d) {
+      var a = d.active, today = localDate(new Date());
+      var html = meNav('experiments', 'What works for my body?') + '<h1>7-day experiments</h1><p class="muted">Pick one habit, try it for a week, and see how you felt compared with the week before. Your body, your data.</p>';
+      if (a) {
+        html += '<section class="exp-active ' + a.def.color + '-soft"><p class="q">Day ' + a.dayNumber + ' of 7</p><h2 class="h2">' + icon(a.def.icon) + ' ' + esc(a.def.title) + '</h2><p><b>Today:</b> ' + esc(a.def.daily) + '</p>' +
+          '<ol class="exp-days">' + a.days.map(function (x, i) {
+            return '<li><button type="button" class="exp-day' + (x.done ? ' on' : '') + '" data-exp-day="' + x.day + '" data-exp="' + a.id + '"' + (x.future ? ' disabled' : '') + ' aria-pressed="' + x.done + '" aria-label="Day ' + (i + 1) + (x.done ? ', done' : '') + '"><b>' + (i + 1) + '</b>' + (x.done ? icon('check') : '') + '</button></li>';
+          }).join('') + '</ol>' +
+          (a.def.auto === 'fiber' ? '<p class="small muted">Days fill in automatically when your food log reaches your fiber goal.</p>' : '<button class="btn btn-block" data-exp-today="' + a.id + '" data-exp-date="' + today + '"' + (a.days.some(function (x) { return x.day === today && x.done; }) ? ' disabled' : '') + '>' + icon('check-circle') + ' I did it today</button>') +
+          '<p class="small"><b>Why it might help:</b> ' + esc(a.def.why) + '</p>' + evidence(a.def.level, a.def.refs) +
+          '<h3 class="h3">How you\u2019re feeling so far</h3>' + expCompare(a) +
+          '<button class="linklike small" data-exp-stop="' + a.id + '">Stop this experiment</button></section>';
+      }
+      html += '<h2 class="h2">' + (a ? 'Next up' : 'Choose your experiment') + '</h2><ul class="exp-grid">' + d.catalog.map(function (e) {
+        return '<li class="exp-card"><span class="ask-ic ' + e.color + '">' + icon(e.icon) + '</span><b>' + esc(e.title) + '</b><p class="small">' + esc(e.daily) + '</p>' + evidence(e.level, []) +
+          '<button class="btn btn-small' + (a ? ' btn-ghost' : '') + '" data-exp-start="' + e.key + '">' + (a ? 'Switch to this' : 'Start 7 days') + '</button></li>';
+      }).join('') + '</ul>';
+      if (d.history.length) html += '<h2 class="h2">Past experiments</h2><ul class="exp-hist">' + d.history.map(function (h) {
+        return '<li><div><b>' + esc(h.def.title) + '</b><span class="small muted">' + esc(prettyDate(h.started_on, { month: 'short', day: 'numeric' })) + ' \u00B7 ' + h.doneCount + ' of 7 days' + (h.status === 'stopped' ? ' \u00B7 stopped early' : '') + '</span></div>' + expCompare(h) + '</li>';
+      }).join('') + '</ul>';
+      view.innerHTML = html;
+    }).catch(errorView);
+  }
+
+  // ---------- INSTALL + REMINDERS ----------
+  var installEvt = null;
+  window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); installEvt = e; var b = document.querySelector('[data-install]'); if (b) b.hidden = false; });
+  if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+  function appCard() {
+    var standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    var rem = function (type, label, time) { return '<li><label><span>' + label + '</span><input type="time" value="' + time + '" data-rem-time="' + type + '"></label><a class="btn btn-tiny btn-ghost" data-rem="' + type + '" href="/api/reminders.ics?type=' + type + '&time=' + time + '" download>' + icon('calendar-blank') + ' Add to calendar</a></li>'; };
+    return '<section class="card app-card"><h2 class="h3">' + icon('device-mobile') + ' Get the app</h2>' +
+      (standalone ? '<p class="small">You\u2019re using the installed app. Nice.</p>'
+        : '<p class="small">Put Better Plate on your home screen so it opens like an app.</p><button class="btn btn-small" data-install' + (installEvt ? '' : ' hidden') + '>' + icon('download-simple') + ' Install the app</button>' +
+          (ios ? '<p class="small install-ios">On iPhone: tap the <b>Share</b> button in Safari, then <b>Add to Home Screen</b>.</p>' : (installEvt ? '' : '<p class="small muted">In Chrome, open the browser menu and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>'))) +
+      '<h3 class="h3">Reminders</h3><p class="small muted">Add a repeating reminder to your phone\u2019s calendar. Works on iPhone, Android and computer, no extra app needed.</p><ul class="rem-list">' +
+      rem('checkin', 'Daily check-in', '20:00') + rem('walk', 'Walk after dinner', '19:00') + rem('plan', 'Sunday: plan my week', '17:00') + '</ul></section>';
+  }
+
   // ---------- LEARN ----------
   function renderLearn() {
     loading();
@@ -643,6 +758,7 @@
       state.me = d; var u = d.user, t = d.targets;
       view.innerHTML = '<h1>Account</h1>' +
         '<section class="card"><h2 class="h3">Your details</h2><p><b>' + esc(u.name) + '</b><br><span class="muted">' + esc(u.email) + '</span></p><p class="small">Plan: Free account. There’s no subscription to cancel.</p></section>' +
+        appCard() +
         '<section class="card"><h2 class="h3">My focus</h2><p class="small muted">Tailors the lessons we suggest first. You can change it anytime.</p><div class="ci-chips" role="group" aria-label="My focus">' +
           [['pcos', 'PCOS'], ['insulin_resistance', 'Insulin resistance'], ['prediabetes', 'Prediabetes'], ['metabolic_syndrome', 'Metabolic syndrome'], ['not_sure', 'Not sure yet']].map(function (f) { return '<button type="button" class="chip-btn' + (u.focus === f[0] ? ' on' : '') + '" data-focus="' + f[0] + '" aria-pressed="' + (u.focus === f[0]) + '">' + f[1] + '</button>'; }).join('') + '</div></section>' +
         '<section class="card"><h2 class="h3">Daily targets</h2><p class="small muted">Defaults: fiber 25g (Institute of Medicine), added sugar under 25g (American Heart Association), protein 90g (a starting point, there\u2019s no official PCOS target). Your clinician may suggest different numbers. <a href="/evidence#targets" target="_blank" rel="noopener">Where these come from</a></p><form id="targets-form" class="form" novalidate><div class="grid-3">' +
@@ -696,6 +812,12 @@
     if ((b = e.target.closest('[data-ci-sym]'))) { var sy = b.dataset.ciSym, li = checkinState.symptoms.indexOf(sy); if (li >= 0) checkinState.symptoms.splice(li, 1); else checkinState.symptoms.push(sy); redrawCheckin(); return saveCheckin(); }
     if ((b = e.target.closest('[data-del-lab]'))) { if (confirm('Delete this result?')) api('DELETE', '/labs/' + b.dataset.delLab).then(renderLabs).catch(function (er) { toast(er.message, true); }); return; }
     if ((b = e.target.closest('[data-focus]'))) return api('PUT', '/account/focus', { focus: b.dataset.focus }).then(function () { state.me.user.focus = b.dataset.focus; toast('Focus saved'); renderAccount(); }).catch(function (er) { toast(er.message, true); });
+    if (e.target.closest('[data-scan-camera]')) return openCamera();
+    if ((b = e.target.closest('[data-exp-start]'))) return api('POST', '/experiments', { key: b.dataset.expStart, today: localDate(new Date()) }).then(function () { toast('Experiment started. Day 1!'); if (route()[0] === 'today') renderToday(); else renderExperiments(); }).catch(function (er) { toast(er.message, true); });
+    if ((b = e.target.closest('[data-exp-today]'))) return api('PUT', '/experiments/' + b.dataset.expToday + '/days/' + b.dataset.expDate, { done: true }).then(function () { toast('Nice. Day logged.'); if (route()[0] === 'today') renderToday(); else renderExperiments(); }).catch(function (er) { toast(er.message, true); });
+    if ((b = e.target.closest('[data-exp-day]'))) return api('PUT', '/experiments/' + b.dataset.exp + '/days/' + b.dataset.expDay, { done: b.getAttribute('aria-pressed') !== 'true' }).then(renderExperiments).catch(function (er) { toast(er.message, true); });
+    if ((b = e.target.closest('[data-exp-stop]'))) { if (confirm('Stop this experiment?')) api('POST', '/experiments/' + b.dataset.expStop + '/stop').then(renderExperiments).catch(function (er) { toast(er.message, true); }); return; }
+    if (e.target.closest('[data-install]')) { if (installEvt) { installEvt.prompt(); installEvt = null; } return; }
     if (e.target.closest('[data-print]')) return window.print();
     if ((b = e.target.closest('[data-need]'))) { var need = store('staples-need') || [], n = b.dataset.need, i = need.indexOf(n); if (i >= 0) need.splice(i, 1); else need.push(n); store('staples-need', need); toast(i >= 0 ? 'Removed from list' : 'Added to grocery list'); return renderStaples(); }
     if (e.target.closest('[data-copy-list]')) { var txt = Array.from(view.querySelectorAll('[data-gitem]')).filter(function (c) { return !c.checked; }).map(function (c) { return '- ' + c.dataset.gitem; }).join('\n'); if (navigator.clipboard) navigator.clipboard.writeText(txt).then(function () { toast('List copied'); }, function () { toast('Couldn\u2019t copy. Try again.', true); }); return; }
@@ -704,6 +826,7 @@
   });
   view.addEventListener('change', function (e) {
     var s = e.target;
+    if (s.matches('[data-rem-time]')) { var a = view.querySelector('[data-rem="' + s.dataset.remTime + '"]'); if (a && /^\d\d:\d\d$/.test(s.value)) a.href = '/api/reminders.ics?type=' + s.dataset.remTime + '&time=' + s.value; return; }
     if (s.matches('[data-ask]')) { var asked = store('report-asked') || [], qi = Number(s.dataset.ask), at = asked.indexOf(qi); if (s.checked && at < 0) asked.push(qi); if (!s.checked && at >= 0) asked.splice(at, 1); store('report-asked', asked); s.closest('li').classList.toggle('no-print', !s.checked); return; }
     if (s.matches('[data-gitem]')) { var key = 'grocery-' + groceryWeek, c = store(key) || {}; if (s.checked) c[s.dataset.gitem] = 1; else delete c[s.dataset.gitem]; store(key, c); return; }
     if (s.matches('[data-qty]')) { plateState.items[Number(s.dataset.qty)].qty = Number(s.value); drawPlateSide(); }
@@ -715,10 +838,14 @@
   });
   view.addEventListener('input', function (e) { if (plateState && e.target.closest('#plate-save') && e.target.name === 'name') plateState.name = e.target.value; });
   view.addEventListener('input', function (e) { if (e.target.matches('[data-note]')) store('report-note', e.target.value); });
+  view.addEventListener('submit', function (e) {
+    if (e.target.matches('[data-bc-form]')) { e.preventDefault(); var code = (e.target.querySelector('[name=code]').value || '').replace(/\D/g, ''); if (!code) return toast('Type the numbers under the barcode.', true); return lookupBarcode(code); }
+  });
   view.addEventListener('submit', function (e) { if (e.target.id === 'plate-save') { e.preventDefault(); savePlate(e.target); } });
 
   function route() { return (location.hash.replace(/^#\/?/, '') || 'today').split('/'); }
   function render() {
+    stopCamera();
     var r = route(), name = r[0];
     document.querySelectorAll('[data-nav]').forEach(function (a) { a.classList.toggle('on', a.dataset.nav === name); if (a.dataset.nav === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     window.scrollTo(0, 0);
@@ -726,7 +853,7 @@
     else if (name === 'scan') r[1] ? renderScanDetail(r[1], r[2] === 'edit') : renderScan();
     else if (name === 'plate') r[1] ? renderPlateDetail(r[1], r[2] === 'edit') : renderPlate(null);
     else if (name === 'plan') ({ grocery: renderGrocery, snacks: renderSnacks, staples: renderStaples, prep: renderPrep }[r[1]] || function () { renderPlan(); })();
-    else if (name === 'me') ({ labs: renderLabs, report: renderReport }[r[1]] || renderMe)();
+    else if (name === 'me') ({ labs: renderLabs, report: renderReport, experiments: renderExperiments }[r[1]] || renderMe)();
     else if (name === 'learn') r[1] ? renderLesson(r[1]) : renderLearn();
     else if (name === 'account') renderAccount();
     else errorView(new Error('That page doesn’t exist.'));

@@ -240,6 +240,43 @@ async function test(name, fn) {
     assert.ok(rep.labs.length >= 5); assert.ok(rep.tests.length >= 4); assert.ok(rep.symptoms.find(x => x.key === 'brain_fog'));
     assert.equal((await B.req('GET', '/api/report?today=2026-11-12')).json.labs.length, 0);
   });
+  await test('Barcode lookup: validates, serves cached product, flags unreliable added sugar', async () => {
+    const { mapProduct } = require('../src/foodfacts');
+    const m = mapProduct('3017624010701', { product_name: 'Nutella', brands: 'Ferrero', nutriments: { 'added-sugars_100g': 0, 'added-sugars_modifier': '~', sugars_100g: 56.3, proteins_100g: 6.3, carbohydrates_100g: 57.5, fat_100g: 30.9 }, ingredients_text_en: 'sugar, palm oil, hazelnuts' });
+    assert.equal(m.added_sugar, 56.3); assert.equal(m.added_sugar_source, 'total_sugars'); assert.equal(m.basis, '100g'); assert.ok(m.warnings.length >= 2);
+    const fixture = mapProduct('0012345678905', { product_name: 'Test Oat Bar', brands: 'Demo', serving_size: '1 bar (40 g)', nova_group: 4,
+      nutriments: { 'added-sugars_serving': 9, proteins_serving: 4, fiber_serving: 3, carbohydrates_serving: 27, fat_serving: 6 }, ingredients_text_en: 'oats, sugar, soy lecithin, natural flavor' });
+    db.prepare('INSERT OR REPLACE INTO products (code, data, fetched_at) VALUES (?,?,?)').run('0012345678905', JSON.stringify(fixture), Date.now());
+    assert.equal((await A.req('GET', '/api/products/abc')).status, 400);
+    assert.equal((await anon.req('GET', '/api/products/0012345678905')).status, 401);
+    const r = await A.req('GET', '/api/products/0012345678905');
+    assert.equal(r.status, 200); assert.equal(r.json.product.added_sugar, 9); assert.equal(r.json.product.nova_group, 4); assert.equal(r.json.product.basis, 'serving');
+  });
+  await test('Experiments: start, mark days, compare, and two-account isolation', async () => {
+    let r = await A.req('POST', '/api/experiments', { key: 'nope' }); assert.equal(r.status, 400);
+    r = await A.req('POST', '/api/experiments', { key: 'veggies_first', today: '2026-11-08' }); assert.equal(r.status, 201);
+    const id = r.json.id;
+    assert.equal((await A.req('PUT', `/api/experiments/${id}/days/2026-11-20`, { done: true })).status, 400);
+    assert.equal((await A.req('PUT', `/api/experiments/${id}/days/2026-11-09`, { done: true })).status, 200);
+    assert.equal((await B.req('PUT', `/api/experiments/${id}/days/2026-11-10`, { done: true })).status, 404);
+    assert.equal((await B.req('POST', `/api/experiments/${id}/stop`)).status, 404);
+    const d = (await A.req('GET', '/api/experiments?today=2026-11-12')).json;
+    assert.equal(d.active.key, 'veggies_first'); assert.equal(d.active.dayNumber, 5); assert.equal(d.active.doneCount, 1);
+    assert.ok(d.active.compare.length === 2 && d.active.duringCount > 0);
+    assert.equal((await B.req('GET', '/api/experiments?today=2026-11-12')).json.active, null);
+    const done = (await A.req('GET', '/api/experiments?today=2026-11-20')).json;
+    assert.equal(done.active, null); assert.equal(done.history[0].status, 'done');
+  });
+  await test('Calendar reminders download a valid repeating .ics', async () => {
+    assert.equal((await A.req('GET', '/api/reminders.ics?type=checkin&time=25:00')).status, 400);
+    const r = await A.req('GET', '/api/reminders.ics?type=plan&time=17:00');
+    assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /text\/calendar/);
+    assert.match(r.text, /BEGIN:VCALENDAR/); assert.match(r.text, /RRULE:FREQ=WEEKLY;BYDAY=SU/); assert.match(r.text, /T170000/); assert.match(r.text, /BEGIN:VALARM/);
+  });
+  await test('Install files: manifest and service worker are served', async () => {
+    const m = await anon.req('GET', '/manifest.webmanifest'); assert.equal(m.status, 200); assert.match(m.headers.get('content-type'), /manifest\+json/); assert.equal(JSON.parse(m.text).display, 'standalone');
+    const w = await anon.req('GET', '/sw.js'); assert.equal(w.status, 200); assert.match(w.text, /caches/); assert.ok(!/\/api\/.*cache/.test(w.text.split('startsWith')[0]));
+  });
   await test('Focus setting validates and saves', async () => {
     assert.equal((await A.req('PUT', '/api/account/focus', { focus: 'nope' })).status, 400);
     assert.equal((await A.req('PUT', '/api/account/focus', { focus: 'prediabetes' })).status, 200);
@@ -250,7 +287,7 @@ async function test(name, fn) {
     assert.equal((await A.req('DELETE', '/api/account', { password: 'wrong' })).status, 401);
     assert.equal((await A.req('DELETE', '/api/account', { password: 'correct horse 1' })).status, 200);
     assert.ok(!db.prepare('SELECT 1 FROM users WHERE id = ?').get(u.id));
-    for (const t of ['label_scans', 'plates', 'food_logs', 'meal_plans', 'uploads', 'sessions', 'targets', 'checkins', 'labs']) assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${t} WHERE user_id = ?`).get(u.id).n, 0, t);
+    for (const t of ['label_scans', 'plates', 'food_logs', 'meal_plans', 'uploads', 'sessions', 'targets', 'checkins', 'labs', 'experiments']) assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${t} WHERE user_id = ?`).get(u.id).n, 0, t);
     assert.ok(!fs.existsSync(path.join(DATA_DIR, 'uploads', u.id)));
     assert.ok(db.prepare('SELECT 1 FROM consent_records WHERE user_id = ?').get(u.id));
   });

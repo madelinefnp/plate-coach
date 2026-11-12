@@ -7,6 +7,7 @@ module.exports = {
   BASE_URL: process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`,
   SHOW_OWNER_FLAGS: process.env.SHOW_OWNER_FLAGS !== '0',
   COOKIE_SECURE: process.env.NODE_ENV === 'production',
+  OFF_CONTACT: process.env.OFF_CONTACT || '', // optional contact for the Open Food Facts User-Agent (owner sets)
   TERMS_VERSION: '2026-11-draft',
   POLICY_VERSION: '2026-11-draft',
   BANNER_VERSION: 'banner-v1',

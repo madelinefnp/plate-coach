@@ -9,6 +9,8 @@ const N = require('./nutrition');
 const LESSONS = require('./lessons');
 const P = require('./pages');
 const H = require('./health');
+const OFF = require('./foodfacts');
+const X = require('./experiments');
 
 const app = express();
 app.disable('x-powered-by');
@@ -80,7 +82,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   next();
 });
 app.use(express.json({ limit: '200kb' }));
@@ -118,6 +120,8 @@ app.use('/api', (req, res, next) => {
 const requireUser = (req, res, next) => req.user ? next() : fail(res, 401, 'Please log in.');
 const requireOwner = (req, res, next) => (req.user && req.user.role === 'owner') ? next() : fail(res, req.user ? 403 : 401, 'Not allowed.');
 
+app.get('/sw.js', (req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('Service-Worker-Allowed', '/'); res.type('application/javascript').sendFile(path.join(__dirname, '..', 'public', 'sw.js')); });
+app.get('/manifest.webmanifest', (req, res) => res.type('application/manifest+json').sendFile(path.join(__dirname, '..', 'public', 'manifest.webmanifest')));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h', index: false }));
 
 // ---------- public pages ----------
@@ -545,6 +549,77 @@ api.get('/report', (req, res) => {
   res.json(H.report(req.user.id, t, 90));
 });
 
+// ---------- barcode lookup (Open Food Facts, server-side + cached) ----------
+api.get('/products/:code', rateLimit('product', 30, 60e3), async (req, res, next) => {
+  const code = String(req.params.code || '');
+  if (!/^\d{8,14}$/.test(code)) return fail(res, 400, 'That doesn’t look like a barcode. Barcodes are 8 to 14 digits.');
+  try {
+    const p = await OFF.lookup(code);
+    if (p.notFound) return fail(res, 404, 'We couldn’t find that product. You can type the label in instead.');
+    res.json({ product: p });
+  } catch (e) {
+    console.error('[product lookup]', e.message);
+    fail(res, 502, 'The food database isn’t responding right now. You can type the label in instead.');
+  }
+});
+
+// ---------- 7-day experiments ----------
+const expRow = id => db.prepare('SELECT * FROM experiments WHERE id = ?').get(id);
+api.get('/experiments', (req, res) => {
+  const t = isDate(String(req.query.today || '')) ? req.query.today : today();
+  const rows = db.prepare('SELECT * FROM experiments WHERE user_id = ? ORDER BY created_at DESC LIMIT 30').all(req.user.id);
+  // auto-complete experiments whose 7 days are over
+  for (const r of rows) if (r.status === 'active' && t > X.addDays(r.started_on, 6)) {
+    db.prepare("UPDATE experiments SET status = 'done', ended_on = ? WHERE id = ? AND user_id = ?").run(X.addDays(r.started_on, 6), r.id, req.user.id);
+    r.status = 'done'; r.ended_on = X.addDays(r.started_on, 6);
+  }
+  const active = rows.find(r => r.status === 'active');
+  res.json({ catalog: X.EXPERIMENTS, active: active ? X.results(req.user.id, active, t) : null,
+    history: rows.filter(r => r.status !== 'active').map(r => X.results(req.user.id, r, t)) });
+});
+api.post('/experiments', writeLimiter, (req, res) => {
+  const key = String((req.body || {}).key || ''), start = String((req.body || {}).today || today());
+  if (!X.BY_KEY[key]) return fail(res, 400, 'Choose an experiment.');
+  if (!isDate(start)) return fail(res, 400, 'Invalid date.');
+  db.prepare("UPDATE experiments SET status = 'stopped', ended_on = ? WHERE user_id = ? AND status = 'active'").run(start, req.user.id);
+  const id = uid();
+  db.prepare('INSERT INTO experiments (id, user_id, key, started_on) VALUES (?,?,?,?)').run(id, req.user.id, key, start);
+  res.status(201).json({ id });
+});
+api.put('/experiments/:id/days/:day', writeLimiter, (req, res) => {
+  const e = expRow(req.params.id);
+  if (!e || e.user_id !== req.user.id) return fail(res, 404, 'Not found.');
+  const day = req.params.day;
+  if (!isDate(day) || day < e.started_on || day > X.addDays(e.started_on, 6)) return fail(res, 400, 'That day isn’t part of this experiment.');
+  if ((req.body || {}).done === true) db.prepare('INSERT OR IGNORE INTO experiment_days (experiment_id, day) VALUES (?,?)').run(e.id, day);
+  else db.prepare('DELETE FROM experiment_days WHERE experiment_id = ? AND day = ?').run(e.id, day);
+  res.json({ ok: true });
+});
+api.post('/experiments/:id/stop', writeLimiter, (req, res) => {
+  const info = db.prepare("UPDATE experiments SET status = 'stopped', ended_on = ? WHERE id = ? AND user_id = ? AND status = 'active'").run(today(), req.params.id, req.user.id);
+  info.changes ? res.json({ ok: true }) : fail(res, 404, 'Not found.');
+});
+
+// ---------- calendar reminders (.ics works on iPhone, Android and desktop with no app install) ----------
+const REMINDERS = {
+  checkin: { title: 'Better Plate: 20-second check-in', desc: 'How are you today? Tap energy, mood, cravings and sleep.', rule: 'FREQ=DAILY', path: '/app#/today' },
+  walk: { title: 'Better Plate: 10-minute walk after dinner', desc: 'A short walk after your biggest meal helps your muscles use glucose.', rule: 'FREQ=DAILY', path: '/app#/me/experiments' },
+  plan: { title: 'Better Plate: plan your week', desc: 'Fill your week and get your grocery list.', rule: 'FREQ=WEEKLY;BYDAY=SU', path: '/app#/plan' },
+};
+api.get('/reminders.ics', (req, res) => {
+  const r = REMINDERS[req.query.type];
+  const time = String(req.query.time || '');
+  if (!r || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return fail(res, 400, 'Choose a reminder and a time.');
+  const d = today().replace(/-/g, ''), hm = time.replace(':', '');
+  const esc = t => t.replace(/[\;,]/g, m => '\\' + m);
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', `PRODID:-//${CFG.APP_NAME}//Reminders//EN`, 'CALSCALE:GREGORIAN', 'BEGIN:VEVENT',
+    `UID:${uid()}@betterplate`, `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').slice(0, 15)}Z`,
+    `DTSTART:${d}T${hm}00`, 'DURATION:PT10M', `RRULE:${r.rule}`, `SUMMARY:${esc(r.title)}`,
+    `DESCRIPTION:${esc(r.desc + ' ' + CFG.BASE_URL + r.path)}`, 'BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${esc(r.title)}`, 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
+  res.setHeader('Content-Disposition', `attachment; filename="better-plate-${req.query.type}.ics"`);
+  res.type('text/calendar').send(ics);
+});
+
 // Account
 api.put('/account/marketing', writeLimiter, (req, res) => {
   const v = (req.body || {}).marketing_opt_in === true ? 1 : 0;
@@ -564,6 +639,7 @@ api.get('/account/export', (req, res) => {
     lesson_progress: db.prepare('SELECT lesson_id, completed_at FROM lesson_progress WHERE user_id = ?').all(id),
     checkins: db.prepare('SELECT * FROM checkins WHERE user_id = ?').all(id).map(checkinOut),
     labs: db.prepare('SELECT kind, value, value2, taken_on FROM labs WHERE user_id = ?').all(id),
+    experiments: db.prepare('SELECT key, started_on, status, ended_on FROM experiments WHERE user_id = ?').all(id),
     signup_consents: db.prepare('SELECT terms_version, privacy_version, marketing_opt_in, created_at FROM signup_consents WHERE user_id = ?').all(id),
     photos: db.prepare('SELECT id, mime, size, created_at FROM uploads WHERE user_id = ?').all(id),
   };
